@@ -1,0 +1,20 @@
+# Build artifacts
+obj_xwr68xx/
+mmw_configPkg_*/
+crcFile
+*.oer4f
+*.oe674
+*.map
+*.rov.xs
+*.bin.tmp
+
+# Generated docs
+docs/doxygen/
+
+# IDE
+.launches/
+.settings/
+.project
+.cproject
+.ccsproject
+.claude/
