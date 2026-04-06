@@ -733,6 +733,11 @@ VsPhaseState gVsPhaseState;
  */
 MmwDemo_vsPhaseWaveform gVsPhaseOutput;
 
+/**
+ * @brief  Vital signs quality output buffer (filled each frame)
+ */
+MmwDemo_vsQuality gVsQualityOutput;
+
 /**************************************************************************
  *************************** Extern Definitions ***************************
  **************************************************************************/
@@ -1517,10 +1522,16 @@ static void MmwDemo_transmitProcessedOutput
             subFrameCfg->numDopplerBins,   /* = numDopplerChirps for 1TX */
             gMmwMssMCB.vsNumRX,                   /* numRX from CLI config */
             1,                              /* numTX = 1 for vital signs */
-            &gVsPhaseOutput);
+            &gVsPhaseOutput,
+            &gVsQualityOutput);
 
         tl[tlvIdx].type   = MMWDEMO_OUTPUT_MSG_VS_PHASE_WAVEFORM;
         tl[tlvIdx].length = sizeof(MmwDemo_vsPhaseWaveform);
+        packetLen += sizeof(MmwDemo_output_message_tl) + tl[tlvIdx].length;
+        tlvIdx++;
+
+        tl[tlvIdx].type   = MMWDEMO_OUTPUT_MSG_VS_QUALITY;
+        tl[tlvIdx].length = sizeof(MmwDemo_vsQuality);
         packetLen += sizeof(MmwDemo_output_message_tl) + tl[tlvIdx].length;
         tlvIdx++;
     }
@@ -1660,6 +1671,14 @@ static void MmwDemo_transmitProcessedOutput
         UART_writePolling (uartHandle,
                            (uint8_t*)&gVsPhaseOutput,
                            sizeof(MmwDemo_vsPhaseWaveform));
+        tlvIdx++;
+
+        UART_writePolling (uartHandle,
+                           (uint8_t*)&tl[tlvIdx],
+                           sizeof(MmwDemo_output_message_tl));
+        UART_writePolling (uartHandle,
+                           (uint8_t*)&gVsQualityOutput,
+                           sizeof(MmwDemo_vsQuality));
         tlvIdx++;
     }
 

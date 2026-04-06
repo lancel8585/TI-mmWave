@@ -91,7 +91,10 @@ typedef enum MmwDemo_output_message_type_e
     MMWDEMO_OUTPUT_MSG_MAX,
 
     /*! @brief   Multi-bin vital signs phase waveform (0x0500) */
-    MMWDEMO_OUTPUT_MSG_VS_PHASE_WAVEFORM = 0x0500
+    MMWDEMO_OUTPUT_MSG_VS_PHASE_WAVEFORM = 0x0500,
+
+    /*! @brief   Vital signs per-bin quality and motion metrics (0x0501) */
+    MMWDEMO_OUTPUT_MSG_VS_QUALITY = 0x0501
 } MmwDemo_output_message_type;
 
 /*! Number of adjacent range bins for vital signs phase output */
@@ -127,6 +130,39 @@ typedef struct MmwDemo_vsPhaseWaveform_t
     /*! @brief  Phase-difference waveform [bin][sample], radians */
     float       phaseWaveform[VS_NUM_RANGE_BINS][VS_PHASE_BUF_LEN];
 } MmwDemo_vsPhaseWaveform;
+
+/*!
+ * @brief  Per-frame vital signs quality metrics for the same 5 range bins
+ */
+typedef struct MmwDemo_vsQuality_t
+{
+    /*! @brief  Center range bin index */
+    uint16_t    centerRangeBin;
+
+    /*! @brief  Number of range bins output (VS_NUM_RANGE_BINS) */
+    uint16_t    numBins;
+
+    /*! @brief  Number of valid samples per bin (up to VS_PHASE_BUF_LEN) */
+    uint16_t    numSamples;
+
+    /*! @brief  Count of bins that had unwrap jumps in this frame */
+    uint16_t    reserved;
+
+    /*! @brief  Per-bin mean magnitude of zero-Doppler sum */
+    float       magMean[VS_NUM_RANGE_BINS];
+
+    /*! @brief  Per-bin RMS of phase-difference circular buffer */
+    float       phaseDiffRms[VS_NUM_RANGE_BINS];
+
+    /*! @brief  Per-bin short motion / instability score */
+    float       motionScore[VS_NUM_RANGE_BINS];
+
+    /*! @brief  Per-bin unwrap jump count accumulated over the circular buffer */
+    uint16_t    unwrapJumpCount[VS_NUM_RANGE_BINS];
+
+    /*! @brief  Reserved for alignment / future use */
+    uint16_t    reserved2[VS_NUM_RANGE_BINS];
+} MmwDemo_vsQuality;
 
 /*!
  * @brief

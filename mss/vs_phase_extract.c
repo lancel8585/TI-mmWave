@@ -34,20 +34,39 @@
 /*          diffCorrCum = cumulative 2*pi correction (in/out)         */
 /*  Output: unwrapped phase = phase + *diffCorrCum                    */
 /* ------------------------------------------------------------------ */
-static float phaseUnwrap(float phase, float phasePrev, float *diffCorrCum)
+static float phaseUnwrap(float phase, float phasePrev, float *diffCorrCum, uint8_t *jumped)
 {
     float diff = phase - phasePrev;
+
+    *jumped = 0U;
 
     if (diff > PI_F)
     {
         *diffCorrCum -= 2.0f * PI_F;
+        *jumped = 1U;
     }
     else if (diff < -PI_F)
     {
         *diffCorrCum += 2.0f * PI_F;
+        *jumped = 1U;
     }
 
     return phase + *diffCorrCum;
+}
+
+static float rmsFromBuffer(const float *buf, uint16_t len)
+{
+    uint16_t i;
+    float sum = 0.0f;
+    if (len == 0U)
+    {
+        return 0.0f;
+    }
+    for (i = 0; i < len; i++)
+    {
+        sum += buf[i] * buf[i];
+    }
+    return sqrtf(sum / (float)len);
 }
 
 /* ------------------------------------------------------------------ */
@@ -65,12 +84,15 @@ void VsPhase_processFrame(
     uint16_t                 numDopplerChirps,
     uint8_t                  numRX,
     uint8_t                  numTX,
-    MmwDemo_vsPhaseWaveform *output)
+    MmwDemo_vsPhaseWaveform *output,
+    MmwDemo_vsQuality       *quality)
 {
-    uint16_t bin, chirp;
+    uint16_t bin, chirp, i, src, validSamples;
     int16_t  rangeBinIdx;
     int32_t  sumReal, sumImag;
-    float    rawPhase, unwrapped, phaseDiff;
+    float    rawPhase, unwrapped, phaseDiff, magMean;
+    uint8_t  jumped;
+    (void)numTX;
 
     /* FORMAT_1: x[numTX][numDopplerChirps][numRX][numRangeBins]
      * For TX0, RX0: index = 0 + chirp * numRX * numRangeBins + 0 + rangeBinIdx
@@ -85,6 +107,7 @@ void VsPhase_processFrame(
         if (rangeBinIdx < 0 || rangeBinIdx >= (int16_t)numRangeBins)
         {
             state->circBuf[bin][state->writeIdx] = 0.0f;
+            state->jumpBuf[bin][state->writeIdx] = 0U;
             continue;
         }
 
@@ -98,6 +121,10 @@ void VsPhase_processFrame(
             sumImag += (int32_t)radarCubeData[idx].imag;
         }
 
+        magMean = sqrtf(((float)sumReal * (float)sumReal) +
+                        ((float)sumImag * (float)sumImag));
+        magMean /= (float)((numDopplerChirps > 0U) ? numDopplerChirps : 1U);
+
         /* atan2 phase (raw, in [-pi, pi]) */
         rawPhase = atan2f((float)sumImag, (float)sumReal);
 
@@ -108,13 +135,15 @@ void VsPhase_processFrame(
             state->prevUnwrappedPhase[bin] = rawPhase;
             state->diffPhaseCorrCum[bin]   = 0.0f;
             state->circBuf[bin][state->writeIdx] = 0.0f;
+            state->jumpBuf[bin][state->writeIdx] = 0U;
         }
         else
         {
             /* Phase unwrap: uses raw previous phase for jump detection */
             unwrapped = phaseUnwrap(rawPhase,
                                     state->prevRawPhase[bin],
-                                    &state->diffPhaseCorrCum[bin]);
+                                    &state->diffPhaseCorrCum[bin],
+                                    &jumped);
 
             /* Frame-to-frame phase difference = chest displacement signal */
             phaseDiff = unwrapped - state->prevUnwrappedPhase[bin];
@@ -124,7 +153,10 @@ void VsPhase_processFrame(
             state->prevUnwrappedPhase[bin] = unwrapped;
 
             state->circBuf[bin][state->writeIdx] = phaseDiff;
+            state->jumpBuf[bin][state->writeIdx] = jumped;
         }
+
+        quality->magMean[bin] = magMean;
     }
 
     state->frameCount++;
@@ -134,29 +166,43 @@ void VsPhase_processFrame(
     output->centerRangeBin = centerBin;
     output->numBins        = VS_NUM_RANGE_BINS;
     output->reserved       = 0;
+    quality->centerRangeBin = centerBin;
+    quality->numBins        = VS_NUM_RANGE_BINS;
+    quality->reserved       = 0;
 
+    validSamples = (state->frameCount < VS_PHASE_BUF_LEN)
+                   ? state->frameCount : VS_PHASE_BUF_LEN;
+    output->numSamples = validSamples;
+    quality->numSamples = validSamples;
+
+    /* Output in chronological order (oldest first) */
+    for (bin = 0; bin < VS_NUM_RANGE_BINS; bin++)
     {
-        uint16_t validSamples = (state->frameCount < VS_PHASE_BUF_LEN)
-                                ? state->frameCount : VS_PHASE_BUF_LEN;
-        uint16_t i, src;
-        output->numSamples = validSamples;
-
-        /* Output in chronological order (oldest first) */
-        for (bin = 0; bin < VS_NUM_RANGE_BINS; bin++)
+        uint16_t jumpCount = 0U;
+        float motionRecentBuf[5];
+        uint16_t motionCount = 0U;
+        for (i = 0; i < VS_PHASE_BUF_LEN; i++)
         {
-            for (i = 0; i < VS_PHASE_BUF_LEN; i++)
+            if (i < validSamples)
             {
-                if (i < validSamples)
+                src = (state->writeIdx + VS_PHASE_BUF_LEN - validSamples + i)
+                      % VS_PHASE_BUF_LEN;
+                output->phaseWaveform[bin][i] = state->circBuf[bin][src];
+                jumpCount += state->jumpBuf[bin][src];
+                if (i >= (validSamples > 5U ? (validSamples - 5U) : 0U) && motionCount < 5U)
                 {
-                    src = (state->writeIdx + VS_PHASE_BUF_LEN - validSamples + i)
-                          % VS_PHASE_BUF_LEN;
-                    output->phaseWaveform[bin][i] = state->circBuf[bin][src];
-                }
-                else
-                {
-                    output->phaseWaveform[bin][i] = 0.0f;
+                    motionRecentBuf[motionCount++] = state->circBuf[bin][src];
                 }
             }
+            else
+            {
+                output->phaseWaveform[bin][i] = 0.0f;
+            }
         }
+
+        quality->phaseDiffRms[bin] = rmsFromBuffer(output->phaseWaveform[bin], validSamples);
+        quality->motionScore[bin]   = rmsFromBuffer(motionRecentBuf, motionCount);
+        quality->unwrapJumpCount[bin] = jumpCount;
+        quality->reserved2[bin] = 0U;
     }
 }

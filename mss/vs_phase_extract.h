@@ -35,6 +35,9 @@ typedef struct VsPhaseState_t
     /*! Circular buffer: phase-difference waveform per bin */
     float   circBuf[VS_NUM_RANGE_BINS][VS_PHASE_BUF_LEN];
 
+    /*! Circular buffer: unwrap jump flag per bin per frame */
+    uint8_t jumpBuf[VS_NUM_RANGE_BINS][VS_PHASE_BUF_LEN];
+
     /*! Write index into circular buffer */
     uint16_t writeIdx;
 
@@ -57,7 +60,8 @@ void VsPhase_reset(VsPhaseState *state);
  * @param[in]     numDopplerChirps Number of Doppler chirps (slow-time samples)
  * @param[in]     numRX          Number of RX antennas
  * @param[in]     numTX          Number of TX antenna patterns
- * @param[out]    output         Filled output structure for TLV
+ * @param[out]    output         Filled phase-waveform output structure for TLV
+ * @param[out]    quality        Filled per-bin quality metrics for TLV
  */
 void VsPhase_processFrame(
     VsPhaseState            *state,
@@ -67,7 +71,8 @@ void VsPhase_processFrame(
     uint16_t                 numDopplerChirps,
     uint8_t                  numRX,
     uint8_t                  numTX,
-    MmwDemo_vsPhaseWaveform *output
+    MmwDemo_vsPhaseWaveform *output,
+    MmwDemo_vsQuality       *quality
 );
 
 #ifdef __cplusplus
